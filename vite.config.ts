@@ -1,6 +1,7 @@
 import rsc from '@vitejs/plugin-rsc'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import tailwindcss from '@tailwindcss/vite'
 // import inspect from "vite-plugin-inspect";
 
 export default defineConfig({
@@ -21,6 +22,8 @@ export default defineConfig({
     // use https://github.com/antfu-collective/vite-plugin-inspect
     // to understand internal transforms required for RSC.
     // inspect(),
+
+    tailwindcss(),
   ],
 
   // specify entry point for each environment.
