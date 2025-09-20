@@ -115,5 +115,109 @@ graph TD
 *   全局样式定义在 `styles/globals.css` 中。
 *   推荐使用 CSS Modules 或 Tailwind CSS 实现组件级别的样式隔离。
 
+## 7. 渲染策略
+
+本节详细阐述服务端组件 (RSC) 和客户端组件 (CC) 的协同工作模式。
+
+### 7.1. 组件类型选择
+
+*   **默认为服务端组件 (RSC)**: 除非组件需要处理用户交互（如 `onClick`, `onChange`）或使用浏览器端 API（如 `localStorage`），否则都应创建为 RSC。这能最大化性能优势。
+*   **客户端组件 (CC)**: 仅在需要交互性时使用。通过在文件顶部添加 `"use client";` 指令来标记一个组件为 CC。Vite 会自动将这些组件及其依赖打包到客户端的 JavaScript bundle 中。
+
+### 7.2. RSC 与 CC 通信
+
+*   **RSC -> CC**: 服务端组件可以像导入普通组件一样导入并渲染客户端组件。重要的是，传递给客户端组件的 props 必须是可序列化的（不能是函数、Date 对象等）。
+*   **CC -> RSC (通过 `children`)**: 客户端组件不能直接 `import` 服务端组件。但是，它们可以接受由服务端组件渲染的 `children` 作为 prop。这是一种强大的模式，允许我们将静态的服务端渲染内容“包裹”在交互式的客户端组件中。
+
+```tsx
+// components/layout/InteractiveWrapper.tsx (Client Component)
+"use client";
+
+import { useState } from "react";
+
+export function InteractiveWrapper({ children }) {
+  const [count, setCount] = useState(0);
+  return (
+    <div>
+      <button onClick={() => setCount(count + 1)}>Click me</button>
+      <p>Count: {count}</p>
+      {children} {/* Server-rendered content goes here */}
+    </div>
+  );
+}
+```
+
+```tsx
+// app/page.tsx (Server Component)
+import { InteractiveWrapper } from "@/components/layout/InteractiveWrapper";
+import { ServerContent } from "@/components/content/ServerContent";
+
+export default function Page() {
+  return (
+    <InteractiveWrapper>
+      {/* This is a Server Component, rendered on the server */}
+      <ServerContent />
+    </InteractiveWrapper>
+  );
+}
+```
+
+## 8. 构建与部署
+
+### 8.1. 构建
+
+执行以下命令来构建生产版本的应用：
+
+```bash
+bun run build
+```
+
+该命令会执行以下操作：
+1.  使用 Vite 构建客户端资源 (JavaScript, CSS)，并将其输出到 `dist/client/` 目录。
+2.  构建服务端渲染 (SSR) 和 RSC 的入口点，并将其输出到 `dist/server/` 目录。
+3.  生成资源清单 (manifest) 文件，用于在服务端渲染时正确地关联客户端资源。
+
+### 8.2. 部署
+
+构建完成后，`dist/` 目录包含了部署所需的所有文件。你可以使用一个 Node.js 服务器来运行应用。
+
+```bash
+bun run start
+```
+
+此命令会启动一个生产服务器，监听指定的端口。
+
+#### 8.2.1. 推荐平台
+
+*   **Vercel**: 对 Next.js 和 RSC 有良好支持，提供开箱即用的 CI/CD 和全球 CDN。
+*   **Netlify**: 同样提供强大的 CI/CD 和部署服务。
+*   **Docker**: 你也可以将应用容器化，并部署到任何支持 Docker 的云平台（如 AWS, Google Cloud）。
+
+## 9. 性能优化
+
+得益于 RSC 优先的架构，项目已经具备了良好的性能基础。以下是一些额外的优化策略：
+
+*   **自动代码分割**: Vite 会自动基于客户端组件 (`"use client"`) 的使用进行代码分割。确保只有在必要时才使用客户端组件，以保持客户端 JavaScript bundle 的最小化。
+*   **懒加载组件**: 对于非首屏或低优先级的客户端组件，可以使用 `React.lazy` 和 `Suspense` 来实现懒加载，进一步减少初始加载时间。
+*   **图片优化**: 使用现代图片格式（如 WebP），并根据需要对图片进行压缩和尺寸调整。可以集成第三方服务或库来自动化此过程。
+*   **服务端缓存**: 对于不经常变化的数据获取操作（如获取所有文章列表），可以在 `lib/api.ts` 中添加缓存层（如使用 `node-cache` 或 `lru-cache`），以减少对文件系统的重复读取。
+
+## 10. 测试策略
+
+为确保代码质量和应用稳定性，推荐采用以下测试策略：
+
+*   **单元测试**: 使用 Vitest 或 Jest 对独立的工具函数 (`lib/utils.ts`)、数据获取逻辑 (`lib/api.ts`) 和复杂的客户端组件进行测试。
+*   **组件测试**: 使用 React Testing Library 测试客户端组件的交互行为和渲染输出。
+*   **端到端 (E2E) 测试**: 使用 Playwright 或 Cypress 对关键用户流程（如文章浏览、评论提交）进行自动化测试，以模拟真实用户场景。
+*   **静态代码分析**: 集成 ESLint 和 Prettier，在代码提交前进行自动化的格式化和质量检查。
+
+## 11. 环境变量
+
+Vite 支持通过 `.env` 文件来管理环境变量。
+
+*   创建一个 `.env.local` 文件用于本地开发，存储敏感信息（如 API 密钥）。此文件不应提交到版本控制。
+*   在代码中，只能通过 `import.meta.env.VITE_*` 来访问暴露给客户端的环境变量。
+*   服务端代码可以直接通过 `process.env` 访问所有环境变量。
+
 ---
 这份文档为 `rcs` 项目的开发提供了清晰的指导和规范。
