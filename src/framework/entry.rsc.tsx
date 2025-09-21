@@ -11,22 +11,24 @@ import type { ComponentType, ReactNode } from 'react'
 // NEW: Define a type for our components for clarity
 type Module = { default: ComponentType<{ children?: ReactNode }> }
 
-// NEW: A helper to dynamically load components (pages or layouts)
-// It returns the component or null if not found.
+// Use import.meta.glob to get all the routes and layouts
+const modules = import.meta.glob('../app/**/*.tsx')
+
 async function loadComponent(
   segments: string[],
   type: 'page' | 'layout',
 ): Promise<ComponentType<{ children?: ReactNode }> | null> {
-  // Construct the path e.g., ../app/dashboard/settings/page.tsx
-  const path = `../app/${[...segments, type].join('/')}.tsx`
-  try {
-    // Dynamically import the module
-    const mod = (await import(/* @vite-ignore */ path)) as Module
+  // Normalize segments for matching, handling the root case
+  const path = `../app/${segments.join('/') || ''}`.replace(/\/$/, '')
+
+  // Construct the full path to match the keys in `modules`
+  const modulePath = `${path}/${type}.tsx`
+
+  if (modules[modulePath]) {
+    const mod = (await modules[modulePath]()) as Module
     return mod.default
-  } catch (e) {
-    // Gracefully handle modules that don't exist
-    return null
   }
+  return null
 }
 
 // MODIFIED: The router is now dynamic and handles nested routes

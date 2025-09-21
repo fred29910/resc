@@ -33,15 +33,15 @@ export default defineConfig({
     // this environment is responsible for:
     // - RSC stream serialization (React VDOM -> RSC stream)
     // - server functions handling
-    rsc: {
-      build: {
-        rollupOptions: {
-          input: {
-            index: './src/framework/entry.rsc.tsx',
+      rsc: {
+        build: {
+          rollupOptions: {
+            input: {
+              index: './src/framework/entry.rsc.tsx',
+            },
           },
         },
       },
-    },
 
     // `ssr` environment loads modules without `react-server` condition.
     // this environment is responsible for:
