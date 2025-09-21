@@ -7,25 +7,67 @@ import {
   decodeFormState,
 } from '@vitejs/plugin-rsc/rsc'
 import type { ReactFormState } from 'react-dom/client'
-import RootLayout from '../app/layout.tsx'
-import HomePage from '../app/page.tsx'
+import type { ComponentType, ReactNode } from 'react'
+// NEW: Define a type for our components for clarity
+type Module = { default: ComponentType<{ children?: ReactNode }> }
 
-// A simple router
-async function router(url: URL) {
-  switch (url.pathname) {
-    case '/':
-      return {
-        Layout: RootLayout,
-        Page: HomePage,
-      }
-    default:
-      // TODO: 404 page
-      return {
-        Layout: RootLayout,
-        Page: () => <div>Not Found</div>,
-      }
+// NEW: A helper to dynamically load components (pages or layouts)
+// It returns the component or null if not found.
+async function loadComponent(
+  segments: string[],
+  type: 'page' | 'layout',
+): Promise<ComponentType<{ children?: ReactNode }> | null> {
+  // Construct the path e.g., ../app/dashboard/settings/page.tsx
+  const path = `../app/${[...segments, type].join('/')}.tsx`
+  try {
+    // Dynamically import the module
+    const mod = (await import(/* @vite-ignore */ path)) as Module
+    return mod.default
+  } catch (e) {
+    // Gracefully handle modules that don't exist
+    return null
   }
 }
+
+// MODIFIED: The router is now dynamic and handles nested routes
+async function router(url: URL): Promise<ReactNode> {
+  const pathSegments = url.pathname.split('/').filter(Boolean)
+
+  // 1. Find the page component for the exact path
+  const Page = await loadComponent(pathSegments, 'page')
+
+  // 2. Handle 404
+  if (!Page) {
+    const RootLayout = (await loadComponent([], 'layout')) || (({ children }) => <>{children}</>)
+    const NotFoundPage = () => <div>404 - Not Found</div>
+    return (
+      <RootLayout>
+        <NotFoundPage />
+      </RootLayout>
+    )
+  }
+
+  // 3. Find all applicable layouts, from the root down to the current segment
+  const layoutPromises: Promise<ComponentType<{ children?: ReactNode }> | null>[] = []
+  for (let i = 0; i <= pathSegments.length; i++) {
+    const segmentsForLayout = pathSegments.slice(0, i)
+    layoutPromises.push(loadComponent(segmentsForLayout, 'layout'))
+  }
+
+  // 4. Resolve all layout promises and filter out any that weren't found
+  const layouts = (await Promise.all(layoutPromises)).filter(
+    (layout): layout is ComponentType<{ children?: ReactNode }> => layout !== null,
+  )
+
+  // 5. Compose the page with all its layouts, from the outermost to the innermost
+  const pageWithLayouts = layouts.reduceRight(
+    (acc: ReactNode, Layout) => <Layout>{acc}</Layout>,
+    <Page />,
+  )
+
+  return pageWithLayouts
+}
+
 
 // The schema of payload which is serialized into RSC stream on rsc environment
 // and deserialized on ssr/client environments.
@@ -77,13 +119,10 @@ export default async function handler(request: Request): Promise<Response> {
   // so that new render reflects updated state from server function call
   // to achieve single round trip to mutate and fetch from server.
   const url = new URL(request.url)
-  const { Layout, Page } = await router(url)
+  // MODIFIED: The router now returns the fully composed React node.
+  const rootNode = await router(url)
   const rscPayload: RscPayload = {
-    root: (
-      <Layout>
-        <Page />
-      </Layout>
-    ),
+    root: rootNode,
     formState,
     returnValue,
   }
